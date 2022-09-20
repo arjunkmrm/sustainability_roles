@@ -1,0 +1,193 @@
+---
+title: "Sustainability Roles"
+author: "Arjun Kumar"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r}
+#laod libraries
+library(igraph)
+library(tidyverse)
+library(quanteda)
+library(visNetwork)
+```
+
+```{r}
+
+roles_df = read.csv('sustainability_roles.csv')
+head(roles_df)
+names(roles_df)
+
+roles_corp = corpus(roles_df, text_field = 'role')
+summary(roles_corp, 5)
+
+roles_toks = tokens(roles_corp, 
+                    remove_punct = TRUE,
+                    remove_symbols = TRUE,
+                    remove_numbers = TRUE,
+                    remove_url = TRUE,
+                    remove_separators = TRUE)
+
+roles_toks %>% head()
+roles_toks = roles_toks %>% tokens_remove(c(stopwords("english"), 'standard', "chartered", "bnp", "paribas", "jpmorgan", "chase", "j.p",
+                                            "CO", "w", "I", "morgan",
+                                            "bnpp", "jp"))
+
+roles_toks = roles_toks %>% tokens_replace("manager-", "manager")
+
+roles_toks
+```
+```{r}
+
+min_freq <- 5
+
+# Create DTM, prune vocabulary and set binary values for presence/absence of types
+roles_dfm <- roles_toks %>%
+             dfm() %>% 
+             dfm_trim(min_docfreq = min_freq) %>%                                        dfm_weight("boolean")
+
+roles_dfm
+
+roles_cc = t(roles_dfm) %*% roles_dfm
+roles_cc[1:5, 1:5]
+
+cooct <- "sustainability"
+k <- nrow(roles_dfm)
+ki <- sum(roles_dfm[, cooct])
+kj <- colSums(roles_dfm)
+names(kj) <- colnames(roles_dfm)
+kij <- roles_cc[cooct, ]
+
+```
+
+```{r}
+
+# Read in the source code for the co-occurrence calculation
+source("calcCoocStats.R")
+ncoocs <- 13
+cooct <- "sustainability"
+
+coocs <- calcCoocStats(cooct, roles_dfm, measure="DICE")
+# Display the ncoocs main terms
+print(coocs[1:ncoocs])
+
+```
+
+```{r}
+
+resultGraph <- data.frame(from = character(), to = character(), sig = numeric(0))
+
+# The structure of the temporary graph object is equal to that of the resultGraph
+tmpGraph <- data.frame(from = character(), to = character(), sig = numeric(0))
+
+# Fill the data.frame to produce the correct number of lines
+tmpGraph[1:ncoocs, 3] <- coocs[1:ncoocs]
+# Entry of the search word into the first column in all lines
+tmpGraph[, 1] <- cooct
+# Entry of the co-occurrences into the second column of the respective line
+tmpGraph[, 2] <- names(coocs)[1:ncoocs]
+# Set the significances
+tmpGraph[, 3] <- coocs[1:ncoocs]
+
+# Attach the triples to resultGraph
+resultGraph <- rbind(resultGraph, tmpGraph)
+
+# Iteration over the most significant ncoocs co-occurrences of the search term
+for (i in 1:ncoocs){
+  
+  # Calling up the co-occurrence calculation for term i from the search words co-occurrences
+  newcooct <- names(coocs)[i]
+  coocs2 <- calcCoocStats(newcooct, roles_dfm, measure="DICE")
+  
+  #print the co-occurrences
+  coocs2[1:10]
+  
+  # Structure of the temporary graph object
+  tmpGraph <- data.frame(from = character(), to = character(), sig = numeric(0))
+  tmpGraph[1:ncoocs, 3] <- coocs2[1:ncoocs]
+  tmpGraph[, 1] <- newcooct
+  tmpGraph[, 2] <- names(coocs2)[1:ncoocs]
+  tmpGraph[, 3] <- coocs2[1:ncoocs]
+  
+  #Append the result to the result graph
+  resultGraph <- rbind(resultGraph, tmpGraph[2:length(tmpGraph[, 1]), ])
+}
+
+```
+
+
+```{r}
+
+#resultGraph %>% filter(to == "sustainability")
+
+```
+
+```{r, fig.width=8, fig.height=8}
+
+# set seed for graph plot
+set.seed(1)
+
+# Create the graph object as undirected graph
+graphNetwork <- graph.data.frame(resultGraph, directed = F)
+
+# Identification of all nodes with less than 2 edges
+verticesToRemove <- V(graphNetwork)[degree(graphNetwork) < 3]
+# These edges are removed from the graph
+graphNetwork <- delete.vertices(graphNetwork, verticesToRemove) 
+
+# Assign colors to nodes (search term blue, others orange)
+V(graphNetwork)$color <- ifelse(V(graphNetwork)$name == cooct, 'cornflowerblue', 'orange') 
+
+# Set edge colors
+E(graphNetwork)$color <- adjustcolor("DarkGray", alpha.f = .5)
+# scale significance between 1 and 10 for edge width
+E(graphNetwork)$width <- scales::rescale(E(graphNetwork)$sig, to = c(1, 10))
+
+# Set edges with radius
+E(graphNetwork)$curved <- 0.05
+# Size the nodes by their degree of networking (scaled between 5 and 15)
+V(graphNetwork)$size <- scales::rescale(log(degree(graphNetwork)), to = c(5, 15))
+
+# Define the frame and spacing for the plot
+par(mai=c(0,0,1,0)) 
+
+# Final Plot
+plot(
+  graphNetwork,             
+  layout = layout.fruchterman.reingold, # Force Directed Layout 
+  main = paste(cooct, ' graph'),
+  vertex.label.family = "sans",
+  vertex.label.cex = 0.8,
+  vertex.shape = "circle",
+  vertex.label.dist = 0.5,          # Labels of the nodes moved slightly
+  vertex.frame.color = adjustcolor("black", alpha.f = .5),
+  vertex.label.color = 'black',     # Color of node names
+  vertex.label.font = 2,            # Font of node names
+  vertex.label = V(graphNetwork)$name,      # node names
+  vertex.label.cex = 1 # font size of node names
+)
+```
+
+
+```{r}
+
+#visIgraph(graphNetwork)
+
+
+
+
+
+
+```
+
+
+
+      
+
+
